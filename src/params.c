@@ -57,12 +57,12 @@
 #define DEF_PrintStatistics	1	/* yes */
 #define DEF_ProgressReport	5	/* in seconds */
 #define DEF_MemoryReport	0	/* don't report */
-#define DEF_VertexReport	1	/* yes */
-#define DEF_FacetReport		0	/* no */
+#define DEF_VertexReport	0	/* no */
+#define DEF_FacetReport		1	/* yes */
 #define DEF_VertexAsFraction	1	/* yes */
-#define DEF_PrintVertices	2	/* partial results */
-#define DEF_PrintFacets		0	/* don't report */
-#define DEF_SaveVertices	2	/* partial */
+#define DEF_PrintVertices	0	/* partial results */
+#define DEF_PrintFacets		1	/* don't report */
+#define DEF_SaveVertices	1	/* partial */
 #define DEF_SaveFacets		1	/* on normal exit only */
 /* name of this program */
 #ifndef PROG
@@ -207,11 +207,10 @@ CFG( ProgressReport, INTEGER)
 "#\n"
 CFG( VertexReport, BOOL)
 "#    print out each vertex (extremal solution) immediately when found.\n"
-"#    Use command line option -y+ (yes) or -y- (no) to override the\n"
-"#    value defined here.\n"
 "#\n"
 CFG( FacetReport, BOOL)
-"#    print out facets immediately when generated.\n"
+"#    print out facets immediately when generated. Use command line\n"
+"#    option -y+ (yes) or -y- (no) to override the value defined here.\n"
 "#\n"
 CFG( MemoryReport, "0 = never, 1 = at the end, 2 = always")
 "#    report the size and location, whenever it changes, of memory\n"
@@ -308,7 +307,7 @@ static void short_help(void) {printf(
 "  -o <file>        save the solution to <file>\n"
 "  -q               quiet, no messages, no statistics\n"
 "  -p0              no progress report\n"
-"  -y-              do not report vertices when generated\n"
+"  -y-              do not report facets when generated\n"
 "Previous content of the output file is deleted without warning.\n"
 COPYRIGHT "\n"
 );}
@@ -339,8 +338,8 @@ static void long_help(void){ printf(
 "  -q               quiet, same as -m0. Implies --PrintStatistics=0\n"
 "  --resume=<checkpoint-file>\n"
 "                   resume computation\n"
-"  -y+              report vertices immediately when generated (default)\n"
-"  -y-              do not report vertices when generated\n"
+"  -y+              report facets immediately when generated (default)\n"
+"  -y-              do not report facets when generated\n"
 "  --KEYWORD=value  change value of a config keyword (see --dump)\n"
 "Previous content of output files are deleted without warning.\n"
 COPYRIGHT "\n"
@@ -895,7 +894,7 @@ static int handle_options(int argc, const char *argv[])
             }
             PARAMS(ARGp)=val; PARAMS(ARGp_set)=1;
             break;
-        case 'y': // report vertices as generated
+        case 'y': // report facets as generated
             val=-1;
             if(strcmp(argv[c],"-y")==0 || strcmp(argv[c],"-y+")==0
                || strcmp(argv[c],"-y1")==0) val=1;
@@ -941,7 +940,7 @@ static void postprocess_parameters(void)
         if(PARAMS(ARGm)==0) PARAMS(PrintStatistics)=0;
     }
     if(PARAMS(ARGy_set)){ // -y+ or -y-
-        PARAMS(VertexReport)=PARAMS(ARGy);
+        PARAMS(FacetReport)=PARAMS(ARGy);
     }
     if(PARAMS(ARGp_set)){ // -p T
         PARAMS(ProgressReport) = PARAMS(ARGp);
