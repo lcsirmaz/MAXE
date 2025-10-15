@@ -31,7 +31,6 @@
 #define DEF_RoundFacets		1	/* yes */
 /* DD parameters */
 #define DEF_RandomVertex	1	/* yes */
-#define DEF_RandomIdealPoint	1	/* yes */
 #define DEF_ExactVertex		0	/* no */
 #define DEF_RecalculateVertices	100
 #define DEF_CheckConsistency	0
@@ -68,9 +67,9 @@
 /* name of this program */
 #ifndef PROG
   #ifdef USETHREADS
-    #define PROG		outerth
+    #define PROG		maxeth
   #else
-    #define PROG		outer
+    #define PROG		maxe
   #endif
 #endif
 #define PROGNAME		mkstringof(PROG)
@@ -106,8 +105,6 @@ static const char* default_config_file=
 CFG( RandomVertex, BOOL)
 "#    pick the next vertex to be asked the oracle about randomly.\n"
 "#\n"
-CFG( RandomIdealPoint, BOOL)
-"#    choose random ideal direction instead (1,1,1,...,1).\n"
 CFG( ExactVertex, BOOL)
 "#    when a vertex is created, recompute coordinates from the set\n"
 "#    of adjacent facets.\n"
@@ -124,7 +121,7 @@ CFG( CheckConsistency, INTEGER)
 "#\n"
 CFG( ExtractAfterBreak, BOOL)
 "#    when the program receives a " mkstringof(BREAK_SIGNAL) " signal, continue extracting\n"
-"#    final vertices by asking the oracle about every pending vertex\n"
+"#    final facets by asking the oracle about every pending vertex\n"
 "#    of the actual approximating polyhedron. Can be very time\n"
 "#    consuming. Second signal aborts this post-processing.\n"
 "#\n"
@@ -209,9 +206,9 @@ CFG( ProgressReport, INTEGER)
 "#    option -p <seconds> to override this value.\n"
 "#\n"
 CFG( VertexReport, BOOL)
-"#    print out each vertex (extremal solution) immediately as it is\n"
-"#    found. Use command line option -y+ (yes) or -y- (no) to override\n"
-"#    the value defined here.\n"
+"#    print out each vertex (extremal solution) immediately when found.\n"
+"#    Use command line option -y+ (yes) or -y- (no) to override the\n"
+"#    value defined here.\n"
 "#\n"
 CFG( FacetReport, BOOL)
 "#    print out facets immediately when generated.\n"
@@ -376,6 +373,7 @@ static void vlp_help(void) {printf(
 "    j    constraint matrix column descriptor\n"
 "    a    constraint matrix coefficient\n"
 "    o    objective coefficient\n"
+"    x    initial internal point\n"
 "    e    end of data, last processed line in the vlp file\n"
 "Comment lines are ignored. The 'p' program line has the format\n"
 "    p vlp DIR ROWS COLS ALINES OBJS OLINES\n"
@@ -402,8 +400,10 @@ static void vlp_help(void) {printf(
 "    a ROW COL VAL      both ROW and COL are positive integers\n"
 "while the coefficients in the OBJ-th objective function are given as\n"
 "    o OBJ COL VAL\n"
-"VAL is a floating point constant; 'a' and 'o' lines with zero values can\n"
-"be omitted.\n"
+"The initial internal point is specified by the lines\n"
+"    x OBJ VAL\n"
+"VAL is a floating point constant; 'a', 'o' and 'x' lines with zero values\n"
+"can be omitted.\n"
 );}
 
 static void out_help(void) {printf(
@@ -417,8 +417,9 @@ static void out_help(void) {printf(
 "(when the problem is minimize), or subset (when the problem is maximize).\n"
 "\n"
 "Extremal solutions (vertices) are printed in separate lines starting with\n"
-"V followed by the value of the d objectives separated by spaces:\n"
-"    V 0 5/2 3/4 7.123456789 -1/2\n"
+"V followed by the value of the d+1 objectives separated by spaces:\n"
+"    V 0 5/2 3/4 7.123456789 -1/2 1\n"
+"The last value is 1 for a normal vertex, and 0 for an extremal direction.\n"
 "Numbers are printed as fractions with small denominator whenever possible.\n"
 "To print them as floating point numerals use the '--VertexAsFraction=0'\n"
 "command line option, or change this value in the default config file.\n"
@@ -428,7 +429,9 @@ static void out_help(void) {printf(
 "When requested, facets are printed in lines starting with F followed by\n"
 "d+1 floating point numerals separated by spaces. The 5-dimensional facet\n"
 "    F 13 7 7 1 0 -10\n"
-"has eqation 13*x1+7*x2+7*x3+1*x4+0*x5-10=0.\n"
+"has eqation 13*x1+7*x2+7*x3+1*x4+0*x5-10=0. The polytope is on the non-\n"
+"negative side of the facet. The ideal facet has coordinates\n"
+"    F 0 0 0 0 0 1\n"
 "\n"
 "Other non-empty lines can start with C for comment, and contain information\n"
 "such as the name and size of the problem; whether it is a partial list, a\n"
@@ -572,7 +575,6 @@ static struct char_params {
   CFG(SaveVertices,2),
   CFG(SaveFacets,2),
   CFG(RandomVertex,1),
-  CFG(RandomIdealPoint,1),
   CFG(ExactVertex,1),
   CFG(ExtractAfterBreak,1),
   CFG(TrueRandom,1),
@@ -1030,7 +1032,6 @@ void show_parameters(char *hdr)
     CFG(ShuffleMatrix);		/* random shuffle of the constraint matrix */
     CFG(RoundFacets);		/* round vertices reported by the oracle */
     CFG(RandomVertex);		/* pick next facet randomly */
-    CFG(RandomIdealPoint);	/* random direction */
     CFG(ExactVertex);		/* recompute vertex coords immediately */
 //    CFG(MemoryLimit);		/* memory limit in Mbytes */
 //    CFG(TimeLimit);		/* time limit in seconds */

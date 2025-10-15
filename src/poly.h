@@ -127,19 +127,18 @@ void get_dd_vertexno(void);
 *
 * int init_dd_structure(vertexno,facetno)
 *    initialize DD algorithm structure allocating space to accomodate
-*    the given number of vertices and facets, but at last DD_INITIAL_
+*    the given number of vertices and facets, but at least DD_INITIAL_
 *    many. Return value:
 *     0:  initialization is succesful
 *     1:  either dimension is too large, or out of memory.
 *
-* void init_dd(double v[0:dim-1])
-*    initialize the DD algorithm, supplying the very first vertex.
+* void init_dd(void)
+*    initialize the DD algorithm.
 *    Call init_dd_structure(0,0) before this routine.
 *    The positive endpoints of coordinate axes (the *ideal* vertices) 
-*    are assumed to be feasible solutions. Arguments:
-*      v[0:dim-1]: coordinates of the first external vertex.
+*    are assumed to be feasible solutions, plus the all zero vertex.
 *
-* int add_initial_vertex(int final,double coords[0..dim-1])
+* int add_initial_vertex(int final,double coords[0..dim])
 * int add_initial_facet(double coords[0..dim])
 *    Load vertices and facets from an earlier partial computation.
 *    First all facets, followed by the vertices. For a vertex 'final' 
@@ -149,8 +148,8 @@ void get_dd_vertexno(void);
 *     0:  OK
 *     1:  some error, error message issued.
 *
-* int get_next_vertex(int from,double *v[0:dim-1])
-*    Return the index and its coordinates of a vertex of the actual
+* int get_next_vertex(int from,double *v[0:dim])
+*    Return the index, and its coordinates of a vertex of the actual
 *    approximation which is not marked as finial. When 'from' is non-
 *    negative, start searching there. If from==-1, then return the 
 *    smallest index, or a random index depending on the parameter
@@ -166,7 +165,7 @@ void get_dd_vertexno(void);
 
 /** initialize data structures with the first vertex **/
 int init_dd_structure(int vertexno, int facetno);
-void init_dd(const double *coords);
+void init_dd(void);
 
 /** add initial vertex and facet **/
 int add_initial_vertex(int final,const double coords[]);

@@ -1,4 +1,4 @@
-/** outer.h  -- bounds and default values **/
+/** maxe.h  -- bounds and default values **/
 
 /***********************************************************************
  * This code is part of MAXE, a helper program for maximum entropy method.

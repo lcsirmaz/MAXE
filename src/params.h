@@ -33,7 +33,6 @@ struct params_t {
     SaveVertices,	/* save vertices at the end */
     SaveFacets,		/* save facets at the end */
     RandomVertex,	/* pick the vertex to be tested randomly */
-    RandomIdealPoint,	/* random ideal direction */
     ExactVertex,	/* always calculate vertex coords from adjacent facets */
     ExtractAfterBreak,	/* continue after break with extracting vertices */
     ShuffleMatrix,	/* (oracle) shuffle rows, columns, and objective order.

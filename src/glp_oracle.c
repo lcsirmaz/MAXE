@@ -13,8 +13,7 @@
          
 /*
 * This part of OUTER realizes the facet separation oracle using glpk
-* (Gnu Linear Program Kit). The solution to the request is in a random
-* direction or in the direction (1,1,1,...,1).
+* (Gnu Linear Program Kit).
 * OracleData structure is used to communicate with the calling routine.
 */
 
@@ -29,9 +28,9 @@ Oracle_t OracleData;
 *   int vcols   number of columns in the constraint matrix
 *   int vrows   number of rows in the constraint matrix
 *   int vobjs   dimension of the objective space: number of objectives
-*   double vvertex[vobjs]
+*   double vvertex[vobjs+1]
 *               the question direction
-*   double vfacet[vobjs]
+*   double vfacet[vobjs+1]
 *               the answer vertex which minimizes the facet direction
 */
 
@@ -48,7 +47,29 @@ Oracle_t OracleData;
 #include <math.h> 	// sqrt
 #include "glpk.h"
 
-/**********************************************************************
+/*********************************************************************
+* glpk routines used
+*    P->valid:  the base is valid
+*  P=glp_create_prob()    - create empty glpk problem P
+*  glp_add_cols(P,ncols)  - add additional "ncols"
+*  glp_add_rows(P,nrows)  - add additional "nrows"
+*  glp_set_col_bnds(P,idx,type,lwb,upb) 
+*  glp_set_row_bnds(P,idx,type,lwb,upb)
+*  glp_set_mat_col(P,idx,n,idxarr[1..n],valarr[1..n])
+*                          - set or replace the matrix column "idx"
+*  glp_set_obj_coef(P,idx,v) 
+*  glp_set_obj_dir(P,GLP_MIN/GLP_MAX)
+*  glp_sort_matrix(P)      - rebuild row and column linked lists (ascending order)
+*  glp_term_out(GLP_OFF/GLP_ON)   - no messages
+*  glp_scale_prob(P,GLP_SF_AUTO)  - scale rows and columd
+*  glp_adv_basis(P,0)
+*  glp_init_smcp(&parm)    - get default values of parameters
+*  glp_simplex(P,&parm)    - solve the LP problem
+*  glp_get_status(P)       - get the status 
+*  glp_get_obj_val(P)      - retrieve  object value
+*  glp_get_row_dual(P,idx) - retrieve dual solution
+*  glp_get_it_cnt(P)       - retrieve iteration count
+**********************************************************************
 * The glpk LP object and parameter structure
 *   glp_prob *P    the glpk problem object
 *   glp_smcp parm  the glpk parameter structure
@@ -90,26 +111,36 @@ static inline void perm_array(int len, int arr[/* 1:len */])
 * double M(row,col)             temporary storage for the constraint
 *                               matrix; indices go from 1
 * int vlp_rowidx[1:rows+objs]   shuffling rows, temporary
-* int vlp_colidx[1:cols+objs+1] shuffling columns, temporary
+* int vlp_colidx[1:cols+1]      shuffling columns, temporary
 * int vlp_objidx[1:objs]        objective indices in rows
-* int vlp_slackobj[1:objs]      slack variables in columns
 * int lambdaidx                 lambda column index
 * double vlp_lambda[1:objs]     obj coeffs in the lambda column
+* double vlp_init[1:objs]       initial internal point
 *
 * int allocate_vlp(row,cols,objs)
 *   allocate memory for vfacet, vvertex, and temporal storage.
 *   Return value: -1: out of memory (should not happen)
+*
+*    x (cols)        lambda        RHS
+*
+*   AAAAAAAAAAA         0         ? <c>
+*   AAAAAAAAAAA         0         ? <c>
+*
+*   PPPPPPPPPPP        -w         = <e>
+*   PPPPPPPPPPP        -w         = <e>
+*  -------------------------------------
+*   00000000000         1         maximize
 */
 
 static double *vlp_M;		/* temporary storage for M */
 static int *vlp_rowidx;		/* temporary row permutation */
 static int *vlp_colidx;		/* temporary column permutation */
 static int *vlp_objidx;		/* object indices */
-static int *vlp_slackobj;	/* slack variables */
 static double *vlp_lambda;	/* lambda column */
+static double *vlp_init;	/* internal point from x lines */
 static int lambda_idx;		/* lambda column index */
 
-/* M has size row+objs times cols+objs+1 */
+/* M has size row+objs times cols+1, 1<=r<=row+objs, 1<=c<=cols+1 */
 #define M(r,c)		vlp_M[(r)+((c)-1)*(vrows+vobjs)-1]
 
 #define xalloc(ptr,type,size)	\
@@ -119,25 +150,24 @@ static int allocate_vlp(int rows, int cols, int objs)
 { int i;
     vrows=rows; vcols=cols; vobjs=objs; // store these values in PARAMS()
     if(xalloc(vfacet,double,objs+2) ||
-       xalloc(vvertex,double,objs+1) ||
+       xalloc(vvertex,double,objs+2) ||
        xalloc(vlp_objidx,int,objs+1) ||
        xalloc(vlp_lambda,double,objs+1) ||
-       xalloc(vlp_slackobj,int,objs+1) ||
-       xalloc(vlp_M,double,(rows+objs)*(cols+objs+1)) ||
+       xalloc(vlp_init,double,objs+1) ||
+       xalloc(vlp_M,double,(rows+objs)*(cols+1)) ||
        xalloc(vlp_rowidx,int,rows+objs+1) ||
-       xalloc(vlp_colidx,int,cols+objs+2))
+       xalloc(vlp_colidx,int,cols+2))
          return -1; // out of memory
-    // indirect inidices to rows and columns
+    // indirect indices to rows and columns
     for(i=0;i<=rows+objs;i++) vlp_rowidx[i]=i;
-    for(i=0;i<=cols+objs+1;i++) vlp_colidx[i]=i;
+    for(i=0;i<=cols+1;i++) vlp_colidx[i]=i;
     if(PARAMS(ShuffleMatrix)){ // permute randomly
         perm_array(rows+objs,vlp_rowidx);
-        perm_array(cols+objs+1,vlp_colidx);
+        perm_array(cols+1,vlp_colidx);
     }
-    // objective rows and slack columns, and the lambda column
+    // objective rows and the lambda column
     for(i=1;i<=objs;i++) vlp_objidx[i]=vlp_rowidx[i+rows];
-    for(i=1;i<=objs;i++) vlp_slackobj[i]=vlp_colidx[i+cols];
-    lambda_idx=vlp_colidx[cols+objs+1];
+    lambda_idx=vlp_colidx[cols+1];
     return 0;
 }
 
@@ -164,9 +194,6 @@ static int allocate_vlp(int rows, int cols, int objs)
 * int glp_type(char ctrl)
 *   returns the glpk version of the ctrl char, or -1 if error.
 *
-* double ideal_direction()
-*    either +1, or a random number between 0 and 1 with non-zero
-*    low-precision bits to make the computation more stable
 */
 
 /* read a single line from a VLP file */
@@ -212,15 +239,8 @@ static int glp_type(char ctrl)
     return -1;
 }
 
-/* either 1.0 or a random number with non-zero least significant bits */
-static double ideal_direction(void)
-{   return
-      PARAMS(RandomIdealPoint)
-       ? sqrt(0.699+0.3*((double)random())/((double)0x7fffffff))
-       : 1.0;
-}
-
-/* read a vlp problem from a file as an LP instance */
+/* read a vlp problem from a file as an LP instance
+ * set lambda >=0  */
 int load_vlp(void)
 {FILE *f; int rows,cols,objs; int i,j,cnt; double p,b1,b2; char ctrl;
  double dir=1.0;
@@ -229,7 +249,7 @@ int load_vlp(void)
         report(R_fatal,"Cannot open vlp file %s for reading\n",PARAMS(VlpFile));
         return 1;
     }
-    rows=cols=0;
+    rows=cols=objs=0;
     P = glp_create_prob();
     while(nextline(f)) switch(inpline[0]){ /* read next input line */
        case 'c': // comment line, print out nonempty comment lines before the first p line
@@ -257,8 +277,8 @@ int load_vlp(void)
                      report(R_fatal,"read_vlp: out of memory for %s:\n   %s\n",
                                PARAMS(VlpFile),inpline); return 1;
                  }
-		 glp_add_cols(P,cols+objs+1); glp_add_rows(P,rows+objs);
-                 glp_set_col_bnds(P,lambda_idx,GLP_FR,0.0,0.0); // lambda is free
+		 glp_add_cols(P,cols+1); glp_add_rows(P,rows+objs);
+                 glp_set_col_bnds(P,lambda_idx,GLP_LO,0.0,0.0); // lambda is >=0
                  continue;
        case 'j': // j <col> [ f || l <val> | u <val> | d <val1> <val2> | s <val> ]
                  if(rows==0){
@@ -310,6 +330,17 @@ int load_vlp(void)
                  }
                  M(vlp_objidx[i],vlp_colidx[j])=dir*p; // store it
                  continue;
+       case 'x': if(rows==0){
+                     report(R_fatal,"read_vlp: x line before p in %s\n   %s\n",
+                                 PARAMS(VlpFile),inpline); return 1;
+                 }
+                 cnt=sscanf(inpline,"x %d %lg",&i,&p);
+                 if(cnt!=2 || objs<i||i<1){
+                    report(R_fatal,"read_vlp: wrong x line in %s\n   %s\n",
+                                 PARAMS(VlpFile),inpline); return 1;
+                 }
+                 vlp_init[i]=p; // store it
+                 continue;
        default: report(R_fatal,"read_vlp: unknown line in %s\n  %s\n",
                            PARAMS(VlpFile),inpline); return 1;
     }
@@ -318,29 +349,24 @@ int load_vlp(void)
        report(R_fatal,"read_vlp: no 'p' line in %s\n",PARAMS(VlpFile)); return 1; 
     }
     /* the vlp file has been read; set the glpk LP instance */
-    // slack variables; they are fixed to be zero, to be changed later to GLP_LO
-    for(j=1;j<=objs;j++) glp_set_col_bnds(P,vlp_slackobj[j],GLP_FX,0.0,0.0);
-    // diagonal entries of the slack variables are 1.0
-    for(j=1;j<=objs;j++) M(vlp_objidx[j],vlp_slackobj[j])=1.0;
-    // finally upload constraints into P
+    // check if vlp_init[] is all positive
+    for(i=1;i<=objs;i++){
+        if(vlp_init[i]<PARAMS(PolytopeEps)){
+           report(R_fatal,"read_vlp: initial value[%d]=%lg not positive\n",
+                           i,vlp_init[i]); return 1;
+        }
+    }
+    // upload constraints into P
     for(i=0;i<=rows+objs;i++) vlp_rowidx[i]=i; // index file
-    for(j=1;j<=cols+objs+1;j++){
+    for(j=1;j<=cols+1;j++){
         if(j!=lambda_idx) glp_set_mat_col(P,j,rows+objs,vlp_rowidx,&M(1,j)-1);
     }
     free(vlp_colidx); free(vlp_rowidx); free(vlp_M);
-    // negtive lambda coefficients are in vlp_lambda
-    for(j=1;j<=objs;j++) vlp_lambda[j]= -1.0*ideal_direction();
-    glp_set_mat_col(P,lambda_idx,objs,vlp_objidx,vlp_lambda);
-    for(j=1;j<=objs;j++) vlp_lambda[j] *= -1.0; // revert to positive values
-    // LP objective: minimize lambda
+    // set objective lines to =vlp_init[]
+    for(i=1;i<=objs;i++) glp_set_row_bnds(P,vlp_objidx[i],GLP_FX,vlp_init[i],vlp_init[i]);
+    // LP objective: maximize lambda
     glp_set_obj_coef(P,lambda_idx,1.0);
-    glp_set_obj_dir(P,GLP_MIN);
-    // preprocess the constraint matrix
-    if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
-    glp_sort_matrix(P);
-    if(PARAMS(OracleScale)) glp_scale_prob(P,GLP_SF_AUTO);
-    glp_adv_basis(P,0);  // make this optimization
-    glp_term_out(GLP_ON); // enable messages form glpk
+    glp_set_obj_dir(P,GLP_MAX);
     return 0;
 }
 
@@ -429,11 +455,7 @@ static char *glp_return_msg(int retval)
 
 /**********************************************************************
 * int initialize_oracle(void)
-*  Check if the consistency of the loaded vlp prolem; add the ideal
-*  points if the are missing
-*
-* init get_initial_vertex(void)
-*   Create an ouside point to OracleData.overtex for the first approximation.
+*  Check the consistency of the loaded vlp problem
 *
 * int ask_oracle(void)
 *  The question and the answer is provided in OracleData. Return values:
@@ -453,7 +475,20 @@ static int call_glp(void)
     if(gettimeofday(&tv,NULL)==0){
         starttime=tv.tv_sec*1000 + (tv.tv_usec+500u)/1000u;
     } else {starttime=0ul;}
+    if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
+    glp_sort_matrix(P);
+    if(PARAMS(OracleScale)) glp_scale_prob(P,GLP_SF_AUTO);
+    glp_adv_basis(P,0);  // make this optimization
+    glp_term_out(GLP_ON); // enable messages form glpk
     ret=glp_simplex(P,&parm);
+    if(ret==GLP_EBADB || ret==GLP_ESING){ // invalid base
+       if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
+       if(PARAMS(OracleScale)) glp_scale_prob(P,GLP_SF_AUTO);
+       glp_adv_basis(P,0);
+       glp_term_out(GLP_ON);
+       oracle_calls++;
+       ret=glp_simplex(P,&parm);
+    }
     if(ret==GLP_EFAIL){ // give it a second chance
         if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
         glp_adv_basis(P,0);
@@ -467,65 +502,38 @@ static int call_glp(void)
 }
 
 int initialize_oracle(void)
-{int i,j,ret;
+{int ret;
     set_oracle_parameters();
-    // compute the maximum along the i-th objective
-    glp_set_obj_dir(P,GLP_MAX);
-    for(i=1;i<=vobjs;i++){
-        // set the objective rows bouunds
-        for(j=1;j<=vobjs;j++)
-            glp_set_row_bnds(P,vlp_objidx[j],i==j ? GLP_FX : GLP_FR,0.0,0.0);
-        ret=call_glp();
-        if(ret){
-            report(R_fatal,"The oracle says: %s (obj %d)\n",glp_return_msg(ret),i);
-            return ORACLE_FAIL;
-        }
-        ret=glp_get_status(P);
-        if(ret==GLP_OPT){ // bounded in this direction
-            glp_set_col_bnds(P,vlp_slackobj[i],GLP_LO,0.0,0.0);
-        } else if(ret!=GLP_UNBND){
-            report(R_fatal,"The oracle says: %s (%d)\n",glp_status_msg(ret),ret);
-            return ret==GLP_NOFEAS ? ORACLE_EMPTY : ORACLE_FAIL;
-        } // otherwise OK
-    }
-    // from now on we compute minimum
+    // check if E is an internal point
+    // the lambda column is all zero
     glp_set_obj_dir(P,GLP_MIN);
-    return ORACLE_OK;
-}
-
-int get_initial_vertex(void)  // create an outside vertex
-{int i,j,ret; double d;
-    for(i=1;i<=vobjs;i++){
-       // set objective rows bounds all free except for a single fixed
-       for(j=1;j<=vobjs;j++) 
-            glp_set_row_bnds(P,vlp_objidx[j],i==j ? GLP_FX : GLP_FR,0.0,0.0);
-       ret=call_glp();
-       if(ret){
-            report(R_fatal,"The oracle says: %s (obj %d)\n",glp_return_msg(ret),i);
-            return ORACLE_FAIL;
-        }
-        ret=glp_get_status(P);
-        if(ret != GLP_OPT){
-            report(R_fatal,"The oracle says: %s (obj %d)\n",glp_status_msg(ret),i);
-            return ret==GLP_UNBND ? ORACLE_UNBND : ORACLE_FAIL;
-        }
-        // recover the solution
-        d=glp_get_obj_val(P)*vlp_lambda[i];
-        if(PARAMS(RoundFacets))round_to(&d);
-        vvertex[i-1]=d;
+    ret=call_glp();
+    if(ret){
+       report(R_fatal,"Internal point: the oracle says: %s\n",glp_return_msg(ret));
+       return ORACLE_FAIL;
     }
+    ret=glp_get_status(P);
+    if(ret!=GLP_OPT){
+       report(R_fatal,"Internal point, the oracle says: %s\n",glp_status_msg(ret));
+       return ret==GLP_NOFEAS ? ORACLE_EMPTY : ORACLE_FAIL;
+    } // otherwise OK
+    glp_set_obj_dir(P,GLP_MAX);
     return ORACLE_OK;
 }
 
 /* int ask_oracle() 
-*   ask oracle about OracleData.overtex, return OracleData.ofacet as the 
-*   separating supporting hyperplane
+*   ask oracle about vvertex[0:vobjs], return vfacet[0:vobjs] as the
+*   separating supporting hyperplane; 
+*   vvertex*vfacet<=0; vlp_init*vfacet>0
 */
 int ask_oracle(void)
 {int i,ret; double lambda,d;
-    // set the objective bound to the values in the vertex
-    for(i=1;i<=vobjs;i++)
-        glp_set_row_bnds(P,vlp_objidx[i],GLP_UP,0.0,vvertex[i-1]);
+    if(vvertex[vobjs]==0.0){ // ideal point
+       for(i=1;i<=vobjs;i++){vlp_lambda[i]=0.0-vvertex[i-1]; }
+    } else { // not an ideal point
+       for(i=1;i<=vobjs;i++){vlp_lambda[i]=vlp_init[i]-vvertex[i-1]; }
+    }
+    glp_set_mat_col(P,lambda_idx,vobjs,vlp_objidx,vlp_lambda);
     ret=call_glp();
     if(ret){
         report(R_fatal,"The oracle says: %s (%d)\n",glp_return_msg(ret),ret);
@@ -533,41 +541,62 @@ int ask_oracle(void)
         return ORACLE_FAIL;
     }
     ret=glp_get_status(P);
-    if(ret == GLP_UNBND) // inside
-        return ORACLE_UNBND;
+    if(ret == GLP_UNBND){
+        if(vvertex[vobjs]==0.0){ return ORACLE_UNBND;} // inside
+        report(R_fatal,"The oracle says: problem unbounded\n");
+        return ORACLE_FAIL;
+    }
     if(ret != GLP_OPT){
         report(R_fatal,"The oracle says: %s (%d)\n",glp_status_msg(ret),ret);
         return ORACLE_FAIL; 
     }
     lambda=glp_get_obj_val(P); // optimal value of lambda
-    /* if lambda <=0 the vertex is inside the polytope
-     * the boundary point: << vvertex[i-1]+lambda*vlp_lambda[i] >>
-     * the facet equation is the negative of the dual solution */
-    if(lambda < PARAMS(PolytopeEps)) return ORACLE_UNBND;
-    for(i=1;i<=vobjs;i++) vfacet[i-1]=-glp_get_row_dual(P,vlp_objidx[i]);
+    /* if lambda ==1 the vertex is inside the polytope
+     * the boundary point: vlp_init[i]-lambda*vlp_lambda[i]
+     * the facet equation is the dual solution */
+    if(lambda<10.0*PARAMS(PolytopeEps)){
+      report(R_fatal,"Initial point is on the boundary\n");
+      return ORACLE_FAIL;
+    }
+    if(vvertex[vobjs]!=0.0 && lambda > 1.0-PARAMS(PolytopeEps)){
+        if(lambda>1.0+PARAMS(PolytopeEps)){
+           report(R_fatal,"Numerical problem, lambda=%lg > 1.0\n",lambda);
+           return ORACLE_FAIL;
+        }
+        return ORACLE_UNBND;
+    }
+    for(i=1;i<=vobjs;i++) vfacet[i-1]=glp_get_row_dual(P,vlp_objidx[i]);
     // normalize the equation to sum up to 1.0
     d=0.0;
-    for(i=0;i<vobjs;i++) d += vfacet[i];
+    for(i=0;i<vobjs;i++) d += vfacet[i]<0 ? -vfacet[i]:vfacet[i];
+    if(d<PARAMS(PolytopeEps)){
+       report(R_fatal,"Numerical problem, facet all zero\n");
+       return ORACLE_FAIL;
+    }
     for(i=0;i<vobjs;i++) vfacet[i] /= d;
-    for(i=0;i<vobjs;i++){
-        d=vfacet[i];
-        if(PARAMS(RoundFacets)) round_to(&d);
-        // all coefficients must be >=0
-        if(d<0.0){
-            if(d<-PARAMS(PolytopeEps)){
-               report(R_fatal,"Numerical instability, facet coeff[%d]=%g<0\n",i+1,d);
-               return ORACLE_FAIL;
-            }
-            d=0.0;
-        }
-        vfacet[i]=d; }
+    if(PARAMS(RoundFacets)){
+       for(i=0;i<vobjs;i++){
+           d=vfacet[i]; round_to(&d);
+           vfacet[i]=d; }
+    }
     // the optimal solution is on the supporting hyperplane
     d=0.0;
     for(i=1;i<=vobjs;i++){
-        d+=vfacet[i-1]*(vvertex[i-1]+lambda*vlp_lambda[i]);
+        d-=vfacet[i-1]*(vlp_init[i]-lambda*vlp_lambda[i]);
     }
     if(PARAMS(RoundFacets)) round_to(&d); 
-    vfacet[vobjs]=-d;
+    vfacet[vobjs]=d;
+    // check that vvertex is on the negative side, vlp_init is on the positive side
+    d=0.0; for(i=0;i<=vobjs;i++) d+=vvertex[i]*vfacet[i];
+    if(d>0.0){
+        report(R_fatal,"Numerical error: vertex is on the negative side (%lg)\n",d);
+        return ORACLE_FAIL;
+    }
+    d=vfacet[vobjs]; for(i=1;i<=vobjs;i++) d+=vlp_init[i]*vfacet[i-1];
+    if(d<PARAMS(PolytopeEps)){
+        report(R_fatal,"Initial point is on the negative side (%lg) of the next facet\n",d);
+        return ORACLE_FAIL;
+    }
     return ORACLE_OK;
 }
 

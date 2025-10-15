@@ -13,7 +13,7 @@
 
 #include "main.h"
 #include "params.h"
-#include "outer.h"
+#include "maxe.h"
 #include "report.h"
 
 /*******************************************************************

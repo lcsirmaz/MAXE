@@ -1,4 +1,4 @@
-/** outer.c outer approximation using glpk oracle **/
+/** maxe.c outer approximation using glpk oracle **/
 
 /***********************************************************************
  * This code is part of MAXE, a helper program for maximum entropy method.
@@ -16,7 +16,7 @@
 #include <string.h>
 #include "main.h"
 #include "report.h"
-#include "outer.h"
+#include "maxe.h"
 #include "data.h"
 #include "params.h"
 #include "poly.h"
@@ -447,7 +447,7 @@ again:
         if(parseline(DIM+1,OracleData.ofacet)){
             return 4; /* error */
         }
-        memset(OracleData.overtex,0,DIM*sizeof(double));
+        memset(OracleData.overtex,0,(DIM+1)*sizeof(double));
 /* this makes an oracle reply to the all zero vertex query when filling
    the facetpool. Thus if get_next_vertex() returns the all zero point
    and checkFacetPool=1, then returns 5, and then this query will not
@@ -459,7 +459,7 @@ again:
     if(j<0) return 0; /* terminated successfully */
     if(checkFacetPool){ /* ask oracle only when not asked before */
         for(i=0;i<PARAMS(FacetPoolSize);i++) if(facetpool[i].occupied
-           && same_vector(DIM,facetpool[i].vertex,OracleData.overtex)){
+           && same_vector(DIM+1,facetpool[i].vertex,OracleData.overtex)){
             return 5; // vertex in OracleData.overtex was asaked before
         }
     }
@@ -473,8 +473,8 @@ again:
         return  4;    // oracle failed
     }
     // OracleData.ofacet is normalized facet eq
-    d=OracleData.ofacet[DIM];
-    for(i=0;i<DIM;i++){
+    d=0.0; //OracleData.ofacet[DIM];
+    for(i=0;i<=DIM;i++){
         d+= OracleData.ofacet[i]*OracleData.overtex[i];
     }
     if(d > PARAMS(PolytopeEps)){ /* numerical error */
@@ -525,11 +525,11 @@ static int fill_facetpool(int limit)
             for(ii=0;ii<PARAMS(FacetPoolSize);ii++) if(facetpool[ii].occupied
                && same_vector(DIM,OracleData.ofacet,facetpool[ii].facet)) break;
             if(ii==PARAMS(FacetPoolSize)){ // the facet is not in FacetPool
-                memcpy(facetpool[i].vertex,OracleData.overtex,DIM*sizeof(double));
+                memcpy(facetpool[i].vertex,OracleData.overtex,(DIM+1)*sizeof(double));
                 memcpy(facetpool[i].facet,OracleData.ofacet,(DIM+1)*sizeof(double));
                 facetpool[i].occupied=1;
             } else { // got the same facet, change vertex to the latter one
-                memcpy(facetpool[ii].vertex,OracleData.overtex,DIM*sizeof(double));
+                memcpy(facetpool[ii].vertex,OracleData.overtex,(DIM+1)*sizeof(double));
                 memcpy(facetpool[ii].facet,OracleData.ofacet,(DIM+1)*sizeof(double));
                 // and check how many unsuccessful calls were made
                 oracle_calls++;
@@ -722,7 +722,7 @@ int outer(void)
         if(init_reading(PARAMS(ResumeFile))) return 1;
         inp_type=inp_resume;
     }
-    report(R_info,"C MOLP problem=%s, %s\n"
+    report(R_info,"C MAXE problem=%s, %s\n"
         "C rows=%d, columns=%d, objectives=%d\n",
         PARAMS(ProblemName),PARAMS(Direction)?"maximize":"minimize",
         PARAMS(ProblemRows),PARAMS(ProblemColumns),PARAMS(ProblemObjects));
@@ -754,11 +754,11 @@ int outer(void)
         // and read initial approximation
         while(nextline(&linetype)) switch(linetype){
            case 1:	// 'V' line, after 'F' lines
-             if(parseline(DIM,OracleData.overtex) ||
+             if(parseline(DIM+1,OracleData.overtex) ||
                  add_initial_vertex(1,OracleData.overtex)) return 1;
              break;
            case 2:      // 'v' line, after 'F' lines
-             if(parseline(DIM,OracleData.overtex) ||
+             if(parseline(DIM+1,OracleData.overtex) ||
                  add_initial_vertex(0,OracleData.overtex)) return 1;
              break;
            case 3:	// 'F' line, these should come first
@@ -775,12 +775,7 @@ int outer(void)
         }
     } else {  // create the initial approximation
         if(init_dd_structure(0,0)) return 1;
-        switch(get_initial_vertex()){
-           case ORACLE_OK:   break;    // OK
-           case ORACLE_UNBND:return 2; // problem unbounded, message given
-           default:          return 4; // oracle error
-        }
-        init_dd(OracleData.overtex);  // create the first approximation
+        init_dd();  // create the first approximation
     }
 #ifdef USETHREADS
     if(create_threads()) return 1;

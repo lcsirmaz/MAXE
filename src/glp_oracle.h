@@ -13,12 +13,12 @@
          
 /**********************************************************************
 * The *facet separation oracle* has a (hidden) polytope. A question is
-*  a point 'q' (presumably outside of the polytope). The answer is a
-*  supporting hyperplane 'f' (presumably a facet) of the polytope which
-*  separates 'q' and the polytope. This module realizes this oracle when
-*  the polytope contains all positive ideal points. Going from 'q' to s
-*  random positive direction hits the polytope in a point. The dual
-*  solution of the LP gives the coordinates of the supporting hyperplane.
+*  a point 'q' (presumably outside of the polytope, possibly ideal). The
+*  answer is a supporting hyperplane 'f' (presumably a facet) of the
+*  polytope which separates 'q' and the polytope. This module realizes
+*  this oracle using an internal point which is connected to 'q'. Where
+*  the segment intersects the boundary, the dual solution provides the
+*  coordinates of the supporting hyperplane.
 *
 * OracleData: struct containing the question to be asked from the
 *    oracle, and the answer it returns. The structure is allocated
@@ -36,7 +36,7 @@
 
 
 typedef struct {
-    double *overtex;		/* overtex[0..objs-1] the request */
+    double *overtex;		/* overtex[0..objs] the request */
     double *ofacet;		/* ofacet[0..objs] the response */
 } Oracle_t;
 
@@ -71,12 +71,11 @@ int load_vlp(void);
 */
 #define ORACLE_OK	0
 #define ORACLE_UNBND	1	/* the projection is unbounded */
-#define ORACLE_EMPTY	2	/* the polytope is empty */
+#define ORACLE_EMPTY	2	/* the polytope is empty or x is not inside */
 #define ORACLE_LIMIT	3	/* iteration or time limit reached */
 #define ORACLE_FAIL	4	/* the oracle failed */
 
 int initialize_oracle(void);
-int get_initial_vertex(void);
 int ask_oracle(void);
 
 /**********************************************************************

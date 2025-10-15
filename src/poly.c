@@ -12,7 +12,7 @@
  ***********************************************************************/
 
 /*
-* This part of OUTER is the combinatorial vertex enumeration algorithm.
+* This part of MAXE is the combinatorial vertex enumeration algorithm.
 * We maintain an outer approximation of the final polytope. In each stage
 * a new vertex of the approximation is chosen, and the oracle is asked
 * whether it is part of the final polytope. If yes, it is marked as
@@ -20,8 +20,7 @@
 * separating the point and the polytope, and cuts the approximation.
 *
 * The algorithm starts with a d dimensional simplex which has d ideal
-* vertices at the positive end of the axes, and a "real" vertex. Each
-* facet (final and intermediate) has non-negative normal.
+* vertices at the positive end of the axes, and a "real" vertex.
 *
 * Both the vertices and the facets of the outer approximation are stored
 * together with adjacency lists which are handled as bitmaps. Using
@@ -515,7 +514,7 @@ inline static void yfree(memslot_t slot)
 *    request initial memory for a temporary slot. The allocated memory
 *    is not cleared
 *        type:  storage type of an item
-*        slot:  memory slop
+*        slot:  memory slot
 *        n:     number of requested blockss
 *        bsize: size of an item in bytes
 *  void talloc2(type,slot,thread_ID,n,bsize)
@@ -729,7 +728,7 @@ DD_STATS dd_stats;
 #define DIM	PARAMS(ProblemObjects)
 
 static int
-  VertexSize,		// size of of a vertex block = DIM
+  VertexSize,		// size of of a vertex block = DIM+1
   NextVertex,		// next free index for a vertex
   MaxVertices,		// number of bits in a facet bitmap
   VertexBitmapBlockSize,// size of the vertex bitmap block
@@ -740,7 +739,7 @@ static int
   ThisFacet;		// the facet we are working with
 
 /* double *VertexCoords(vno); BITMAP_t *VertexAdj(vno);
-      coordinate (DIM) and adjacency list (FacetBitmapBlockSize) of 
+      coordinate (DIM+1) and adjacency list (FacetBitmapBlockSize) of 
       vertex 'vno'
    double *FacetCoords(fno); BITMAP_t *FacetAdj(fno)
       coordinate (DIM+1) and adjacency list (VertexBitmapBlockSize)
@@ -767,14 +766,14 @@ static int
     get_memory_ptr(int,M_VertexPosnegList)
  
 /* void get_dd_vertexno(void)
-*    compute the number of living and final vertices intto dd_stats
+*    compute the number of living and final vertices into dd_stats
 *  int get_vertexnum()
-*    number of livint vertices
+*    number of living vertices
 *  int get facetnum()
 *    number of facets */
 void get_dd_vertexno(void)
 {int i,vno; BITMAP_t vl,vf;
-    dd_stats.living_vertex_no=-DIM; dd_stats.final_vertex_no=-DIM;
+    dd_stats.living_vertex_no=0; dd_stats.final_vertex_no=0;
     for(i=0;i<VertexBitmapBlockSize;i++){
         vl=VertexLiving[i];
         dd_stats.living_vertex_no += get_bitcount(vl);
@@ -786,12 +785,10 @@ void get_dd_vertexno(void)
             report(R_err,"Consistency error: final but not living vertex %d\n",vno);
         }
     }
-    if(dd_stats.living_vertex_no<0) dd_stats.living_vertex_no=0;
-    if(dd_stats.final_vertex_no<0)  dd_stats.final_vertex_no=0;
 }
 int get_vertexnum(void)
 {int i,total; BITMAP_t v;
-    total=-DIM;
+    total=0;
     for(i=0;i<VertexBitmapBlockSize;i++){
         v=VertexLiving[i]; total += get_bitcount(v);
     }
@@ -809,7 +806,7 @@ int get_facetnum(void)
 * The main iteration adds a new facet to the actual approximation. First,
 * for each vertex 'vno' VertexDist(vno) contains the distance of the vertex
 * from the facet. Vertex numbers with positive distances are collected at
-* the from of VertexPostNextList, vertex numbers with negative distance are
+* the front of VertexPostNextList, vertex numbers with negative distance are
 * collected from the end. For each postive / negative pair (vp,vn) the
 * following are computed by each thread:
 *  FacetList       -- list of facet numbers which are adjacent to both vp,vn
@@ -910,7 +907,7 @@ inline static void move_NewVertex_th(int thId,int vno)
 *    init_dd_structure(0,0); */
 
 int init_dd_structure(int vertexno,int facetno)
-{int i,j;
+{
     if(DIM<1 || DIM>MAXIMAL_ALLOWED_DIMENSION){
         report(R_fatal,"Problem dimension %d is out of allowed range (1 .. %d)\n",
            DIM,MAXIMAL_ALLOWED_DIMENSION);
@@ -922,7 +919,7 @@ int init_dd_structure(int vertexno,int facetno)
     if(MaxFacets<DD_INITIAL_FACETNO) MaxFacets=DD_INITIAL_FACETNO;
     while(MaxVertices<DIM) MaxVertices += (DD_VERTEX_ADDBLOCK<<packshift);
     while(MaxFacets<DIM) MaxFacets += (DD_FACET_ADDBLOCK<<packshift);
-    FacetSize=DIM+1; VertexSize=DIM;
+    FacetSize=DIM+1; VertexSize=DIM+1;
     // bitmaps
     VertexBitmapBlockSize = (MaxVertices+packmask)>>packshift;
     FacetBitmapBlockSize = (MaxFacets+packmask)>>packshift;
@@ -932,7 +929,7 @@ int init_dd_structure(int vertexno,int facetno)
     dd_stats.vertices_allocated=MaxVertices;
     dd_stats.facets_allocated_no=1;
     dd_stats.facets_allocated=MaxFacets;
-    dd_stats.facetno=0; // no facets added, the ideal facet is not stored
+    dd_stats.facetno=0; // no facets added
     // clear memory slots
     clear_memory_slots();
     yalloc(double,M_VertexCoordStore,MaxVertices,VertexSize); // VertexCoordStore
@@ -944,47 +941,38 @@ int init_dd_structure(int vertexno,int facetno)
     if(OUT_OF_MEMORY) return 1;
     dd_stats.memory_allocated_no=1;
     NextVertex=0; NextFacet=0;
-    // ideal vertices with index 0 .. DIM-1
-    for(i=0;i<DIM;i++){ // i-th ideal vertex
-        for(j=0;j<DIM;j++) VertexCoords(NextVertex)[j]= i==j?1.0: 0.0;
-        clear_VertexAdj(NextVertex); // the ideal facet is not stored
-        set_in_VertexLiving(NextVertex); 
-        set_in_VertexFinal(NextVertex);
-        NextVertex++;
-    }
     return 0;
 }
 
-/* int init_dd(double first_vertex[1:DIM-1])
+/* int init_dd(void)
 *    set up the first outer approximation using the given vertex */
-void init_dd(const double *coords)
+void init_dd(void)
 {int i,j;
-    // add the vertex of the first approximation
-    for(j=0;j<DIM;j++)VertexCoords(NextVertex)[j]=coords[j];
-    clear_VertexAdj(NextVertex);
-    set_in_VertexLiving(NextVertex);
-    // add DIM coordinate facets incident to the given point
-    for(i=0;i<DIM;i++){
-        for(j=0;j<DIM;j++)FacetCoords(NextFacet)[j]=i==j?1.0: 0.0;
-        FacetCoords(NextFacet)[DIM]=-coords[i];
+    // add DIM+1 vertices for the first approximation
+    for(i=0;i<=DIM;i++){
+        for(j=0;j<=DIM;j++)VertexCoords(NextVertex)[j]= i==j ? 1.0 : 0.0;
+        clear_VertexAdj(NextVertex);
+        set_in_VertexLiving(NextVertex);
+        NextVertex++;
+    }
+    // add DIM coordinate facets and the ideal facet
+    for(i=0;i<=DIM;i++){
+        for(j=0;j<=DIM;j++)FacetCoords(NextFacet)[j]= i==j ? 1.0 : 0.0;
         clear_FacetAdj(NextFacet);
-        // it is adjacent to the new vertex only
-        set_bit(FacetAdj(NextFacet),NextVertex);
-        set_bit(VertexAdj(NextVertex),NextFacet);
-        for(j=0;j<DIM;j++) if(i!=j){
+        // it is adjacent to
+        for(j=0;j<=DIM;j++) if(i!=j){
             set_bit(FacetAdj(NextFacet),j);
             set_bit(VertexAdj(j),NextFacet);
         }
         NextFacet++;
     }
-    NextVertex++;
-    dd_stats.facetno=DIM; 
+    dd_stats.facetno=DIM+1;
 }
 
 /* int add_initial_facet(double coords[0:dim])
 *     collect all facets of the outer approximation first
-*  void add_initial_vertex(int final,double coords[0:dim-1])
-*     create a consistent initial polytope from the given vertex.*/
+*  void add_initial_vertex(int final,double coords[0:dim])
+*     create a consistent initial polytope from the given vertices.*/
 int add_initial_facet(const double coords[/*0 .. DIM */])
 {int j; double w;
     if(NextFacet>MaxFacets){
@@ -997,33 +985,22 @@ int add_initial_facet(const double coords[/*0 .. DIM */])
     }
     w=0.0;
     for(j=0;j<DIM;j++){
-        if(coords[j]<0.0){
-            report(R_fatal,"Resume: facet %d has negative coefficient\n",NextFacet);
-            return 1;
+        w += coords[j]<0.0 ? -coords[j] : coords[j];
+    }
+    if(w>PARAMS(PolytopeEps)){
+        for(j=0;j<=DIM;j++){
+            FacetCoords(NextFacet)[j]=coords[j]/w;
         }
-        w += coords[j];
-    }
-    if(w<PARAMS(PolytopeEps)){
-        report(R_fatal,"Resume: facet %d has all zero coefficients\n",NextFacet);
-        return 1;
-    }
-    for(j=0;j<=DIM;j++){
-        FacetCoords(NextFacet)[j]=coords[j]/w;
     }
     if(PARAMS(Direction))
         FacetCoords(NextFacet)[DIM] *= -1.0;
     clear_FacetAdj(NextFacet);
-    // adjacent to which ideal vertices
-    for(j=0;j<DIM;j++){
-        if(FacetCoords(NextFacet)[j]<PARAMS(PolytopeEps))
-            set_bit(FacetAdj(NextFacet),j);
-    }
     NextFacet++;
     dd_stats.facetno++;
     return 0;
 }
 
-int add_initial_vertex(int final,const double coords[/* 0 .. DIM-1 */])
+int add_initial_vertex(int final,const double coords[/* 0 .. DIM */])
 {int fno,j; double w;
     if(NextVertex>=MaxVertices){
         report(R_fatal,"Resume: more vertices than specified\n");
@@ -1033,8 +1010,8 @@ int add_initial_vertex(int final,const double coords[/* 0 .. DIM-1 */])
     if(final) set_in_VertexFinal(NextVertex);
     clear_VertexAdj(NextVertex);
     for(fno=0;fno<NextFacet;fno++){ // which facets it is adjacent to
-        w=FacetCoords(fno)[DIM];
-        for(j=0;j<DIM;j++) w+= coords[j]*FacetCoords(fno)[j];
+        w=0.0;
+        for(j=0;j<=DIM;j++) w+= coords[j]*FacetCoords(fno)[j];
         if(w<-PARAMS(PolytopeEps)){
             report(R_fatal,"Resume: vertex %d is on the negative side of facet %d (%lg)\n",
                fno,NextVertex-DIM,w);
@@ -1134,15 +1111,11 @@ inline static int get_new_vertexno(int threadId) // threadId==0 if ! USETHREADS
 */
 static double vertex_distance(double *facet,int vno)
 {double d=0.0; int i; double *vcoords;
-    if(vno<DIM){ // ideal vertex
-        return facet[vno];
-    }
     vcoords=VertexCoords(vno);
-    for(i=0;i<DIM;i++){
+    for(i=0;i<=DIM;i++){
         d += (*facet) * (*vcoords);
         facet++; vcoords++;
     }
-    d += *facet;
     return d;
 }
 
@@ -1152,7 +1125,7 @@ static double vertex_distance(double *facet,int vno)
 int probe_facet(double *coords)
 {int vno,negvertex;
     dd_stats.probefacet++; negvertex=0;
-    for(vno=DIM;vno<NextVertex;vno++) if(is_livingVertex(vno)){
+    for(vno=0;vno<NextVertex;vno++) if(is_livingVertex(vno)){
         if(vertex_distance(coords,vno)< - PARAMS(PolytopeEps) ) negvertex++;
     }
     return negvertex;
@@ -1174,53 +1147,69 @@ int probe_facet(double *coords)
 #include "round.h"	/* round the solution to a close rational number */
 
 static int solve_lineq(int d,int DIM1,double *FA)
-{int i,jmax,col; double v,vmax;
+{int i,jmax,col,row,rank; double v,vmax;
 #define A(i,j)  FA[(i)*DIM1+(j)]
-    for(col=0;col<DIM;col++){
+    rank=-1; row=0;
+    for(col=0;col<=DIM;col++){
        /* get the largest value of column col to A[j,col] */
        jmax=col; vmax=0.0;
-       for(i=col;i<d;i++){
+       for(i=row;i<d;i++){
            v=A(i,col); if(v<0.0) v=-v;
            if(vmax<v){jmax=i;vmax=v;}
        }
        if(vmax< PARAMS(LineqEps)){ /* too small value */
-           report(R_err,"solve_lineq: rank is too small (col=%d, max=%lg)\n"
-                 ,col,vmax);
+           if(rank<0){ rank=col; continue; }
+           report(R_err,"solve_lineq: rank is too small (cols: %d,%d, max=%lg)\n"
+                 ,rank,col,vmax);
            return 1; /* error */
        }
-       if(jmax!=col){ /* swap rows jmax and col */
+       if(jmax!=row){ /* swap rows jmax and row */
           for(i=col;i<=DIM;i++){
-             v=A(col,i); A(col,i)=A(jmax,i); A(jmax,i)=v;
+             v=A(row,i); A(row,i)=A(jmax,i); A(jmax,i)=v;
           }
        }
-       v=1.0/A(col,col);
-       for(i=col+1;i<=DIM;i++){ A(col,i)*=v; }
-       A(col,col)=1.0;
-       /* and subtract row col from all rows */
-       for(jmax=0;jmax<d;jmax++) if(jmax!=col){
+       v=1.0/A(row,col);
+       for(i=col+1;i<=DIM;i++){ A(row,i)*=v; }
+       A(row,col)=1.0;
+       /* and subtract row 'row' from all rows */
+       for(jmax=0;jmax<d;jmax++) if(jmax!=row){
            v=A(jmax,col); A(jmax,col)=0.0;
-           for(i=col+1;i<=DIM;i++){ A(jmax,i) -= A(col,i)*v; }
+           for(i=col+1;i<=DIM;i++){ A(jmax,i) -= A(row,i)*v; }
        }
+       row++;
     }
-    jmax=-1; vmax=0.0;
-    for(i=DIM;i<d;i++){
-        v=A(i,DIM);if(v<0.0) v=-v;
-        if(v>PARAMS(LineqEps)){ jmax=i; if(vmax<v) vmax=v;}
-    }
-    if(jmax>0){
-        report(R_err,"solve_lineq: rank is too large %lg, increase LineqEps=%lg\n",
-                     vmax,PARAMS(LineqEps));
+    if(rank<0){
+        report(R_err,"solve_lineq: rank is too large, increase LineqEps=%lg\n",
+                     PARAMS(LineqEps));
         return 1; /* error */
     }
     /* copy the negated final values to row 0 */
-    for(col=0;col<DIM;col++){
-        v=-1.0*A(col,DIM); round_to(&v); A(0,col)=v;
+    for(col=row=0;col<=DIM;col++){
+        if(col==rank){v=1.0; }
+        else { v=-1.0*A(row,rank); round_to(&v); row++;}
+        A(0,col)=v;
+    }
+    if(rank!=DIM){ // A(0,DIM)==0 and normalize
+        v=A(0,DIM); A(0,DIM)=0.0;
+        if(v<-PARAMS(LineqEps)|| v>PARAMS(LineqEps)){
+           report(R_err,"solve_lineq: homogeneous coordinates, rank=%d, v=%lg\n",
+                         rank,v);
+           return 1;
+        }
+        v=0.0; for(col=0;col<DIM;col++){v += A(0,col); }
+        if(v<1.0){
+            report(R_err,"solve_lineq: homogeneous coordinates, rank=%d, L1=%lg\n",
+                         rank,v);
+            return 1;
+        }
+        v=1.0/v;
+        for(col=0;col<DIM;col++){ A(0,col) *= v; }
     }
     return 0;
 #undef A
 }
 
-/* void recalucalte_vertex(int info,BITMAP_t *adj,double *old,int threadID)
+/* void recalculate_vertex(int info,BITMAP_t *adj,double *old,int threadID)
 *    calculate the coordinates of the point which is adjacent to all facets.
 *    Complain if out of memory; the system is degenerate, or the old and new
 *    coeffs are too far from each other */
@@ -1256,8 +1245,8 @@ static void recalculate_vertex(int info, BITMAP_t *adj,double *old,int threadID)
         dd_stats.numerical_error++;
         return;
     }
-    // the new vertex is in A(0,i) for 0<=i<DIM
-    for(i=0;i<DIM;i++){
+    // the new vertex is in A(0,i) for 0<=i<=DIM
+    for(i=0;i<=DIM;i++){
         v=old[i]-A(0,i);
         if(v>PARAMS(VertexRecalcEps) || v<-PARAMS(VertexRecalcEps)){
             report(R_warn,"recalculate: numerical instability at vertex %d,"
@@ -1278,7 +1267,7 @@ static void recalculate_vertex(int info, BITMAP_t *adj,double *old,int threadID)
 static void thread_recalculate(int threadId) // Id goes from 0 to MaxThreads-1
 {int vno,step;
     step=ThreadNo;
-    for(vno=DIM+threadId;vno<NextVertex;vno+=step) if(is_livingVertex(vno))
+    for(vno=threadId;vno<NextVertex;vno+=step) if(is_livingVertex(vno))
         recalculate_vertex(vno,VertexAdj(vno),VertexCoords(vno),threadId);
 }
 
@@ -1335,11 +1324,32 @@ inline static int is_edge(int v1,int v2,int threadId)
     return 1; // yes
 }
 
+/* void normalize_vertex(nv,d1,d2,v1,v2)
+*    compute d1*v1+d2*v2 => nv, then renormalize so that either new[DIM]=1.0
+*    or new[DIM]=0.0, and the new has L1 norm. */
+inline static void normalize_vertex(double *nv,
+       double d1,double d2, double *v1, double *v2)
+{int i; double v;
+    for(i=0;i<=DIM;i++){nv[i]=d1*v1[i]+d2*v2[i];}
+    v=nv[DIM]; if(v>PARAMS(PolytopeEps)){ // normal point
+        v=1.0/v;
+        for(i=0;i<DIM;i++){nv[i] *= v;} nv[DIM]=1.0;
+        return;
+    }
+    if(v<-PARAMS(PolytopeEps)){ // error
+        report(R_err,"New vertex with negative last coordinate %lg\n",v);
+        dd_stats.numerical_error++;
+        return;
+    }
+    nv[DIM]=0.0; v=0.0;
+    for(i=0;i<DIM;i++){v+=nv[i];} v=1.0/v;
+    for(i=0;i<DIM;i++){nv[i]*=v;}
+}
 /* void create_new_vertex(v1,v2)
 *    create a new vertex on the edge v1-v2 intersecting the facet ThisFacet
 *    Recalculate the vertex coeffs when ExactVertexEq parameter is set */
 inline static void create_new_vertex(int v1,int v2,int threadId)
-{int newv; double d1,d2,d; int i;
+{int newv; double d1,d2; int i;
     newv=get_new_vertexno(threadId);
     if(newv<0) return; // no memory
     // adjacency list is the intersection of that of v1 and v2 plus the new facet
@@ -1347,18 +1357,9 @@ inline static void create_new_vertex(int v1,int v2,int threadId)
         NewVertexAdj(threadId,newv)[i] = VertexAdj(v1)[i] & VertexAdj(v2)[i];
     set_bit(NewVertexAdj(threadId,newv),ThisFacet);
     // compute the intersection, v1<0, v2>0
-    if(v2<DIM){ // ideal vertex, f[v2]>0
-        for(i=0;i<DIM;i++)
-            NewVertexCoords(threadId,newv)[i]=VertexCoords(v1)[i];
-         d1 = -VertexDist(v1);
-         NewVertexCoords(threadId,newv)[v2] += d1/FacetCoords(ThisFacet)[v2];
-    } else {    // f(v1)=-d1, f(v2)=d2, (d2*v1+d1*v2)/(d1+d2)
-        d1 = -VertexDist(v1); d2 = VertexDist(v2);
-        d=1.0/(d1+d2); d1 *= d; d2 *= d;
-        for(i=0;i<DIM;i++)
-           NewVertexCoords(threadId,newv)[i]=
-             d2*VertexCoords(v1)[i]+d1*VertexCoords(v2)[i];
-    }
+    d1 = -VertexDist(v1); d2 = VertexDist(v2);
+    normalize_vertex(NewVertexCoords(threadId,newv),d2/(d1+d2),d1/(d1+d2),
+         VertexCoords(v1),VertexCoords(v2));
     if(PARAMS(ExactVertex))
         recalculate_vertex(MaxVertices+newv, // report number if error
             NewVertexAdj(threadId,newv),     // adjacency list
@@ -1384,7 +1385,7 @@ static void make_vertex_living(int vno)
 }
 
 /* void search_edges()
-*    go over all vertex pairs (v1,v2). v1<0; v2>0 adn check if it is an edge.
+*    go over all vertex pairs (v1,v2). v1<0; v2>0 and check if it is an edge.
 *    if yes, add the new vertex, recomputing the coordinates if necessary
 *  void thread_search_edges(threadId)
 *    split all cases into ThreadNo pieces; each thread executes one of them.
@@ -1481,7 +1482,7 @@ inline static void request_main_loop_memory(int threadID)
 *    to the new facet. For each pair of positive/negative vertices check if
 *    it is an edge. If yes, add a new vertex at the intersection point. */
 
-/* add a new facet fo the approximation */
+/* add a new facet to the approximation */
 void add_new_facet(double *coords)
 {double d; int i,j,vno,threadId,AllNewVertex; BITMAP_t fc;
  int *PosIdx, *NegIdx;
@@ -1583,7 +1584,7 @@ void add_new_facet(double *coords)
     for(j=0;j<dd_stats.vertex_neg;j++,NegIdx--){ 
          clear_bit(VertexLiving,*NegIdx);
     }
-    // move new vertices to NextFacet until there is a space
+    // move new vertices to NextVertex until there is a space
     AllNewVertex=dd_stats.vertex_new;
     for(threadId=0;threadId<ThreadNo;threadId++){
         while(NewVertex[threadId]>0 && NextVertex<MaxVertices){
@@ -1639,7 +1640,7 @@ void add_new_facet(double *coords)
 }
 
 /***********************************************************************
-* int get_next_vertex(from,to[0:DIM-1])
+* int get_next_vertex(from,to[0:DIM])
 *    return the next living but not final vertex number starting at
 *    'from' and store it at 'to'[]. If no such vertex is, return -1. 
 *    When from=-1 and RandomVertex is set, pick the starting number
@@ -1649,7 +1650,7 @@ void add_new_facet(double *coords)
 static inline int mrandom(int v)
 { return v<=1 ? 0 : (random()&0x3fffffff)%v; }
 
-int get_next_vertex(int from, double *to/*[0:DIM-1]*/)
+int get_next_vertex(int from, double *to/*[0:DIM]*/)
 {int vno,i,j; BITMAP_t v;
     dd_stats.vertexenquiries++;
     if(from<0){
@@ -1669,7 +1670,7 @@ int get_next_vertex(int from, double *to/*[0:DIM-1]*/)
             while((v&7)==0){j+=3; v>>=3; }
             if(v&1){
                vno+=j;
-               memcpy(to,VertexCoords(vno),DIM*sizeof(double));
+               memcpy(to,VertexCoords(vno),(DIM+1)*sizeof(double));
                return vno; }
             j++; v>>=1;
         }
@@ -1681,7 +1682,7 @@ int get_next_vertex(int from, double *to/*[0:DIM-1]*/)
             while((v&7)==0){j+=3; v>>=3; }
             if(v&1){ 
                 vno+=j;
-                memcpy(to,VertexCoords(vno),DIM*sizeof(double));
+                memcpy(to,VertexCoords(vno),(DIM+1)*sizeof(double));
                 return vno; }
             j++; v>>=1;
         }
@@ -1749,7 +1750,7 @@ void print_vertex(report_type channel,int vno)
 {int j; double dir;
     report(channel,"%c ",is_finalVertex(vno) ? 'V' : 'v');
     dir = PARAMS(Direction) ? -1.0 : 1.0;
-    for(j=0;j<DIM;j++){
+    for(j=0;j<=DIM;j++){
        report(channel," %s",formatvalue(dir*VertexCoords(vno)[j]));
     }
     report(channel,"\n");
@@ -1758,7 +1759,7 @@ void print_vertex(report_type channel,int vno)
 void print_vertices(report_type channel)
 /* print all vertices */
 {int i;
-    for(i=DIM;i<NextVertex;i++)if(is_livingVertex(i))
+    for(i=0;i<NextVertex;i++)if(is_livingVertex(i))
        print_vertex(channel,i);
 }
 
@@ -1837,7 +1838,7 @@ int check_bitmap_consistency(void)
         // number of adjacent facets must be at least DIM
         nn=0;
         for(i=0;i<FacetBitmapBlockSize;i++) nn+=get_bitcount(VertexAdj(vno)[i]);
-        if(nn<DIM && (nn<DIM-1 ||vno>=DIM) ){ // except for ideal vertices
+        if(nn<DIM){
            report(R_err,"Vertex %d is on %d facets only (<%d)\n",vno,nn,DIM);
            errno++;
         }
