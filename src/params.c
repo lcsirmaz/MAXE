@@ -63,7 +63,7 @@
 #define DEF_PrintVertices	0	/* partial results */
 #define DEF_PrintFacets		1	/* don't report */
 #define DEF_SaveVertices	1	/* partial */
-#define DEF_SaveFacets		1	/* on normal exit only */
+#define DEF_SaveFacets		2	/* always */
 /* name of this program */
 #ifndef PROG
   #ifdef USETHREADS

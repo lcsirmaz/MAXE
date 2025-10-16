@@ -1147,12 +1147,12 @@ int probe_facet(double *coords)
 #include "round.h"	/* round the solution to a close rational number */
 
 static int solve_lineq(int d,int DIM1,double *FA)
-{int i,jmax,col,row,rank; double v,vmax;
+{int i,jmax,col,row,rank; double v,vmax,A00;
 #define A(i,j)  FA[(i)*DIM1+(j)]
     rank=-1; row=0;
     for(col=0;col<=DIM;col++){
        /* get the largest value of column col to A[j,col] */
-       jmax=col; vmax=0.0;
+       jmax=row; vmax=0.0;
        for(i=row;i<d;i++){
            v=A(i,col); if(v<0.0) v=-v;
            if(vmax<v){jmax=i;vmax=v;}
@@ -1184,8 +1184,10 @@ static int solve_lineq(int d,int DIM1,double *FA)
         return 1; /* error */
     }
     /* copy the negated final values to row 0 */
+    A00=A(0,0);
     for(col=row=0;col<=DIM;col++){
         if(col==rank){v=1.0; }
+        else if(row==0 && rank==0){v=-1.0*A00; round_to(&v); row++; }
         else { v=-1.0*A(row,rank); round_to(&v); row++;}
         A(0,col)=v;
     }
