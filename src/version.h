@@ -11,9 +11,19 @@
  * There is ABSOLUTELY NO WARRANTY, use at your own risk.
  ***********************************************************************/
 
+/* Name of this program */
+#ifndef PROG
+  #ifdef USETHREADS
+    #define PROG		maxeth
+  #else
+    #define PROG		maxe
+  #endif
+#endif
+#define PROGNAME		mkstringof(PROG)
+
 /* Version and copyright */
 #define VERSION_MAJOR	1
-#define VERSION_MINOR	0
+#define VERSION_MINOR	1
 #ifdef USETHREADS
 #define VERSION_STRING	"threaded version " mkstringof(VERSION_MAJOR.VERSION_MINOR) "T"
 #else

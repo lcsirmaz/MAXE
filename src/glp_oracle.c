@@ -469,17 +469,19 @@ static unsigned long oracle_time=0ul;
 
 /* call the glpk simplex solver twice if necessary */
 #include <sys/time.h> 
-static int call_glp(void)
+static int call_glp(int reset)
 {int ret; struct timeval tv; unsigned long starttime;
     oracle_calls++;
     if(gettimeofday(&tv,NULL)==0){
         starttime=tv.tv_sec*1000 + (tv.tv_usec+500u)/1000u;
     } else {starttime=0ul;}
-    if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
-    glp_sort_matrix(P);
-    if(PARAMS(OracleScale)) glp_scale_prob(P,GLP_SF_AUTO);
-    glp_adv_basis(P,0);  // make this optimization
-    glp_term_out(GLP_ON); // enable messages form glpk
+    if(reset){
+       if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
+       glp_sort_matrix(P);
+       if(PARAMS(OracleScale)) glp_scale_prob(P,GLP_SF_AUTO);
+       glp_adv_basis(P,0);  // make this optimization
+       glp_term_out(GLP_ON); // enable messages form glpk
+    }
     ret=glp_simplex(P,&parm);
     if(ret==GLP_EBADB || ret==GLP_ESING){ // invalid base
        if(PARAMS(OracleMessage)<2) glp_term_out(GLP_OFF);
@@ -507,7 +509,7 @@ int initialize_oracle(void)
     // check if E is an internal point
     // the lambda column is all zero
     glp_set_obj_dir(P,GLP_MIN);
-    ret=call_glp();
+    ret=call_glp(1);
     if(ret){
        report(R_fatal,"Internal point: the oracle says: %s\n",glp_return_msg(ret));
        return ORACLE_FAIL;
@@ -527,21 +529,23 @@ int initialize_oracle(void)
 *   vvertex*vfacet<=0; vlp_init*vfacet>0
 */
 int ask_oracle(void)
-{int i,ret; double lambda,d;
+{int i,ret,ltype; double lambda,d;
     if(vvertex[vobjs]==0.0){ // ideal point
        for(i=1;i<=vobjs;i++){vlp_lambda[i]=0.0-vvertex[i-1]; }
     } else { // not an ideal point
        for(i=1;i<=vobjs;i++){vlp_lambda[i]=vlp_init[i]-vvertex[i-1]; }
     }
+    ltype=glp_get_col_stat(P,lambda_idx); // GLP_BS
+// printf("ask_oracle(");for(i=1;i<=vobjs;i++){printf(" %lg",vvertex[i-1]);}printf(") type=%d\n",ltype);
     glp_set_mat_col(P,lambda_idx,vobjs,vlp_objidx,vlp_lambda);
-    ret=call_glp();
+    ret=call_glp(ltype!=GLP_BS);
     if(ret){
         report(R_fatal,"The oracle says: %s (%d)\n",glp_return_msg(ret),ret);
         // one can continue if  ret==GLP_EITLIM || ret==GLP_ETMLIM
         return ORACLE_FAIL;
     }
     ret=glp_get_status(P);
-    if(ret == GLP_UNBND){
+    if(ret == GLP_UNBND || ret==GLP_INFEAS){
         if(vvertex[vobjs]==0.0){ return ORACLE_UNBND;} // inside
         report(R_fatal,"The oracle says: problem unbounded\n");
         return ORACLE_FAIL;

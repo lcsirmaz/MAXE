@@ -64,16 +64,6 @@
 #define DEF_PrintFacets		1	/* don't report */
 #define DEF_SaveVertices	1	/* partial */
 #define DEF_SaveFacets		2	/* always */
-/* name of this program */
-#ifndef PROG
-  #ifdef USETHREADS
-    #define PROG		maxeth
-  #else
-    #define PROG		maxe
-  #endif
-#endif
-#define PROGNAME		mkstringof(PROG)
-
 struct params_t GlobalParams;
 
 /***********************************************************************

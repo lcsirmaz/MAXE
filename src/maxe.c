@@ -21,6 +21,7 @@
 #include "params.h"
 #include "poly.h"
 #include "glp_oracle.h"
+#include "version.h"
 
 /*********************************************************************
 * Miscellaneous: initialize random; get elapsed time; nice printing
@@ -253,6 +254,7 @@ static void dump_and_save(int status)
       get_oracle_stat(&oraclecalls,&oraclerounds,&oracletime);
       report(R_txt,"\n" DASHSEP "\n"
       "Problem %s\n"
+      " algorithm               " PROGNAME " v" mkstringof(VERSION_MAJOR.VERSION_MINOR) "\n"
       " name                    %s\n"
       " output                  %s\n"
       "%s%s%s"
