@@ -620,7 +620,7 @@ void get_oracle_stat(int *no, int *it, unsigned long *time, const char **ver)
     while(*from && cnt<80){ cnt++; *to=*from; to++; from++; }
     from=glp_version();
     while(*from && cnt<80){ cnt++; *to=*from; to++; from++; }
-    *ver=&verstr[0];
+    *to=0; *ver=&verstr[0];
 }
 
 /* EOF */
