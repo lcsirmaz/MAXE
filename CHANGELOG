@@ -1,3 +1,5 @@
+v1.2: improving report text, improving the rounding algorithm
+
 v1.1: bugfix for dual simplex method;
       adding algorithm name and version to the report
 

@@ -83,9 +83,9 @@ int ask_oracle(void);
 *
 * void get_oracle_stat(int *no, int *it, unsigned long *t)
 *    the number of LP instances, total number of iterations (rounds),
-*    and the total time spent by glpk in 0.01 seconds
+*    total time spent by glpk in 0.01 seconds, and version string
 */
-void get_oracle_stat(int *no, int *it, unsigned long *t);
+void get_oracle_stat(int *no, int *it, unsigned long *t, const char **ver);
 
 /* EOF */
 

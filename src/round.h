@@ -44,6 +44,10 @@ static inline void round_to(double *v)
     if(-4.0*ROUND_EPS<iip && iip<4.0*ROUND_EPS){ *v=ip+1.0/(ip2+1.0/ip3); return; }
     v2=1.0/iip; ip4=intfloor(v2); iip=v2-ip4;
     if(-8.0*ROUND_EPS<iip && iip<8.0*ROUND_EPS){ *v=ip+1.0/(ip2+1.0/(ip3+1.0/ip4)); return;}
+    v2=1.0/iip; 
+// check if the next iteration is close
+    ip=ip+1.0/(ip2+1.0/(ip3+1.0/(ip4+1.0/intfloor(v2)))); iip=*v-ip;
+    if(-ROUND_EPS<iip && iip<ROUND_EPS){ *v=ip; return; }
 }
 
 #endif /* OUTER_ROUND_H */

@@ -612,9 +612,15 @@ int ask_oracle(void)
 *   undocumented glpk call to get the number of iterations.
 */
 
-void get_oracle_stat(int *no, int *it, unsigned long *time)
-{   *no=oracle_calls; *it=glp_get_it_cnt(P); 
+void get_oracle_stat(int *no, int *it, unsigned long *time, const char **ver)
+{static char verstr[81]; const char *from; char *to; int cnt;
+    *no=oracle_calls; *it=glp_get_it_cnt(P); 
     *time=(oracle_time+5ul)/10ul; // in 0.01 seconds
+    cnt=0; to=&verstr[0]; from="using glpk-";
+    while(*from && cnt<80){ cnt++; *to=*from; to++; from++; }
+    from=glp_version();
+    while(*from && cnt<80){ cnt++; *to=*from; to++; from++; }
+    *ver=&verstr[0];
 }
 
 /* EOF */

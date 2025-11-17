@@ -251,10 +251,11 @@ static void dump_and_save(int status)
     }
     if(PARAMS(PrintStatistics)){ // statistics, only if not quiet
       int oraclecalls,oraclerounds; unsigned long oracletime;
-      get_oracle_stat(&oraclecalls,&oraclerounds,&oracletime);
+      const char *oracleversion;
+      get_oracle_stat(&oraclecalls,&oraclerounds,&oracletime,&oracleversion);
       report(R_txt,"\n" DASHSEP "\n"
       "Problem %s\n"
-      " algorithm               " PROGNAME " v" mkstringof(VERSION_MAJOR.VERSION_MINOR) "\n"
+      " algorithm               " PROGNAME " " mkstringof(VERSION_MAJOR.VERSION_MINOR) " %s\n"
       " name                    %s\n"
       " output                  %s\n"
       "%s%s%s"
@@ -262,6 +263,7 @@ static void dump_and_save(int status)
       " rows, cols, objs        %d, %d, %d\n"
       " vertices, facets        %d, %d\n",
       status==0 ? "completed" : status<=2 ? "aborted with error" : "interrupted",
+      oracleversion,
       PARAMS(ProblemName),
       PARAMS(SaveFile) ? PARAMS(SaveFile) : 
         PARAMS(SaveVertexFile)||PARAMS(SaveFacetFile) ? "" : "[none]",
